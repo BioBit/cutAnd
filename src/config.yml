@@ -1,5 +1,7 @@
 GENOME_IDX:
     - "/home/groups/hoolock2/u0/genomes/ucsc/hg38/indexes/bowtie2/hg38"
+CHRSIZES:
+    - "/home/groups/hoolock2/u0/genomes/ucsc/hg38/hg38.chrom.sizes"
 SAMPLES:
     - "A1_H3K27Ac_Kasumi_S22"
     - "A1_H3K4me1_Kasumi_S5"
@@ -33,3 +35,8 @@ SAMPLES:
     - "ND2_H3K4me1_Kasumi_S3"
     - "ND2_H3K4me3_Kasumi_S4"
     - "ND2_IgG_Kasumi_S19"
+MACS2:
+    # the -g for genome size parameter in MACS2
+    G:
+      - "hs"  # or "hs" for human  
+     

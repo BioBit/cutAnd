@@ -3,7 +3,7 @@ import glob
 import os
 
 # import configuration
-configfile: "src/config_run.yml"
+configfile: "src/config.yml"
 
 # map samples to fastqs
 def get_samples(dir):
@@ -17,31 +17,21 @@ sampdict = get_samples("data/raw")
 readpair=[[k+"_R1", k+"_R2"] for k in sampdict.keys()]
 reads=[v for s in readpair for v in s]
 
-
-def get_control(sample):
-    '''Gets the control file ("IgG") for the sample'''
-    t = sample.split("_")[0]
-    c = glob.glob(f"data/mrkdup/{t}_IgG*.bam")
-    if len(c)==0:
-        control=""
-    elif os.path.basename(c[0])==sample:
-        control=""
-    elif len(c)==1:
-        control="-c "+str(c[0]) 
-    else:
-        print(f"Control file couldn't be found for {sample}")
-        control=""
-    return control
+# get control from config file
+ctrl=config["CONTROL"][0]
+control = f"data/sort/{ctrl}.sorted.bam"
 
 # define target output
 rule all:
     input:
          "data/multiqc/multiqc_report.html",
+         "data/macs2/peak_counts.tsv",
          expand("data/fastqc/{read}.html", read=reads),
          expand([
                 "data/macs2/{sample}_treat_pileup.bdg",
                 "data/macs2/{sample}_control_lambda.bdg",
-                "data/macs2/{sample}_FE.sort.bw"
+                "data/macs2/{sample}_FE.sort.bw",
+                "data/macs2/{sample}_peaks.xls",
                 ],
                  sample=sampdict.keys()),
 
@@ -63,7 +53,7 @@ rule bowtie2:
     input:
         lambda wildcards: sampdict[wildcards.sample]
     output:
-        "data/aligned/{sample}.bam"
+        temp("data/aligned/{sample}.bam")
     log:
         err="data/logs/bowtie2_{sample}.err"
     conda:
@@ -81,7 +71,7 @@ rule sort:
     input:
         rules.bowtie2.output 
     output:
-        temp("data/sort/{sample}.sorted.bam")
+        "data/sort/{sample}.sorted.bam"
     conda:
         "envs/sam.yml"
     log: 
@@ -90,54 +80,43 @@ rule sort:
     shell:
         "samtools sort -T {wildcards.sample} -@ {threads} -o {output} {input} > {log} 2>&1"
 
-# mark pcr duplicates
-rule mrkdup:
-    input:
-        rules.sort.output
-    output:
-        "data/mrkdup/{sample}.sorted.mrkdup.bam"
-    conda:
-        "envs/sam.yml"
-    log:
-        "data/logs/mrkdup_{sample}.log"
-    threads: 4
-    shell:
-        "sambamba markdup -t {threads} {input} {output} > {log} 2>&1"
-
 # generate index file
 rule index:
     input:
-       rules.mrkdup.output 
+       rules.sort.output 
     output:
-        "data/mrkdup/{sample}.sorted.mrkdup.bam.bai"
+        "data/sort/{sample}.sorted.bam.bai"
     conda:
         "envs/sam.yml"
     log: 
         "data/logs/index_{sample}.log"
     threads: 4
     shell:
-        "sambamba index -t 2 {input} > {log} 2>&1"
+        "samtools index -@ {threads} {input} > {log} 2>&1"
 
 
 # keep all dups
 rule macs2:
     input:
-        rules.mrkdup.output 
+        b="data/sort/{sample}.sorted.bam",
+        bi= "data/sort/{sample}.sorted.bam.bai"
     output:
-        "data/macs2/{sample}_treat_pileup.bdg", "data/macs2/{sample}_control_lambda.bdg"
+        "data/macs2/{sample}_peaks.xls",
+        "data/macs2/{sample}_treat_pileup.bdg",
+         "data/macs2/{sample}_control_lambda.bdg"
     conda:
         "envs/macs2.yml"
     params:
         outdir="data/macs2",
-        control=lambda wildcards: get_control(wildcards.sample)
+        control=control 
     log:
         "data/logs/macs2_{sample}.log"
     shell:
         """
         # macs2 call broad peaks no dups 
         macs2 callpeak \
-                    -t {input} \
-                    {params.control} \
+                    -t {input.b} \
+                    -c {params.control} \
                     -n {wildcards.sample} \
                     --outdir {params.outdir} \
                     -g {config[MACS2][G]} \
@@ -149,6 +128,18 @@ rule macs2:
                     --broad \
                     --nomodel \
         """ 
+
+rule count_peaks:
+    input:
+        expand("data/macs2/{sample}_peaks.xls", sample=sampdict.keys())
+    output:
+        "data/macs2/peak_counts.tsv"
+    shell:
+        """
+        for file in data/macs2/*.broadPeak;
+             do awk -v f=${{file##*/}} '{{sum+=1}}END{{print f,sum}}' OFS='\t' $file; 
+        done > {output} 
+        """
 
 rule get_fold_enrichment:
     input:

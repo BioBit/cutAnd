@@ -3,7 +3,7 @@ import glob
 import os
 
 # import configuration
-configfile: "src/config.yml"
+configfile: "src/config_run.yml"
 
 # map samples to fastqs
 def get_samples(dir):
@@ -39,12 +39,9 @@ rule all:
          "data/multiqc/multiqc_report.html",
          expand("data/fastqc/{read}.html", read=reads),
          expand([
-                "data/aligned/{sample}.bam",
-                "data/mrkdup/{sample}.sorted.mrkdup.bam",
-                "data/mrkdup/{sample}.sorted.mrkdup.bam.bai",
-                "data/macs2/keep_all/{sample}_FE.sort.bw",
-                "data/macs2/keep_all/{sample}_treat_pileup.bdg",
-                "data/macs2/keep_all/{sample}_control_lambda.bdg",
+                "data/macs2/{sample}_treat_pileup.bdg",
+                "data/macs2/{sample}_control_lambda.bdg",
+                "data/macs2/{sample}_FE.sort.bw"
                 ],
                  sample=sampdict.keys()),
 
@@ -127,14 +124,14 @@ rule macs2:
     input:
         rules.mrkdup.output 
     output:
-        "data/macs2/keep_all/{sample}_treat_pileup.bdg", "data/macs2/keep_all/{sample}_control_lambda.bdg"
+        "data/macs2/{sample}_treat_pileup.bdg", "data/macs2/{sample}_control_lambda.bdg"
     conda:
         "envs/macs2.yml"
     params:
-        outdir="data/macs2/keep_all",
+        outdir="data/macs2",
         control=lambda wildcards: get_control(wildcards.sample)
     log:
-        "data/logs/macs2_keepall_{sample}.log"
+        "data/logs/macs2_{sample}.log"
     shell:
         """
         # macs2 call broad peaks no dups 
@@ -155,9 +152,9 @@ rule macs2:
 
 rule get_fold_enrichment:
     input:
-        "data/macs2/keep_all/{sample}_treat_pileup.bdg","data/macs2/keep_all/{sample}_control_lambda.bdg"
+        "data/macs2/{sample}_treat_pileup.bdg","data/macs2/{sample}_control_lambda.bdg"
     output:
-        "data/macs2/keep_all/{sample}_FE.bdg"
+        "data/macs2/{sample}_FE.bdg"
     conda:
         "envs/macs2.yml"
     params:
@@ -172,7 +169,7 @@ rule sort_bg:
     input:
         rules.get_fold_enrichment.output  
     output:
-        "data/macs2/keep_all/{sample}_FE.sort.bdg"
+        "data/macs2/{sample}_FE.sort.bdg"
     shell:
         "LC_COLLATE=C; sort -k1,1 -k2,2n {input} > {output}"
 
@@ -180,7 +177,7 @@ rule bdg_to_bw:
     input:
         rules.sort_bg.output
     output:
-        "data/macs2/keep_all/{sample}_FE.sort.bw"        
+        "data/macs2/{sample}_FE.sort.bw"        
     conda:
         "envs/bgtobw.yml"
     log:
@@ -190,7 +187,7 @@ rule bdg_to_bw:
 
 rule multiqc:
     input:
-        expand("data/macs2/keep_all/{sample}_peaks.xls", sample=sampdict.keys())
+        expand("data/macs2/{sample}_peaks.xls", sample=sampdict.keys())
     output:
         "data/multiqc/multiqc_report.html"
     conda:
